@@ -3,5 +3,5 @@
 *.tfstate
 *.tfstate.backup
 tf.log
-.env
+.env*
 *.env
