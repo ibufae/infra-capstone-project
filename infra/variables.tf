@@ -14,5 +14,9 @@ variable "instance-type" {
 }
 
 variable "env" {
-  type    = string
+  type = string
+}
+
+variable "public_key_path" {
+  type = string
 }

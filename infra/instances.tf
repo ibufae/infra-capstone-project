@@ -7,8 +7,8 @@ data "aws_ssm_parameter" "linuxAmi" {
 #Create key-pair for logging into EC2 in us-east-1
 resource "aws_key_pair" "master-key" {
   provider   = aws.region-master
-  key_name   = "jdc"
-  public_key = file("~/.ssh/id_ed25519.pub")
+  key_name   = "${var.env}-key"
+  public_key = file(var.public_key_path)
 }
 
 #Create and bootstrap EC2 in us-east-1
