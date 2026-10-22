@@ -10,10 +10,6 @@ alerting:
         - targets: ['alertmanager:9093']
 
 scrape_configs:
-  - job_name: 'prometheus'
-    static_configs:
-      - targets: ['localhost:9090']
-
   - job_name: 'node'
     static_configs:
       - targets: ['node-exporter:9100']
@@ -21,7 +17,3 @@ scrape_configs:
   - job_name: 'cadvisor'
     static_configs:
       - targets: ['cadvisor:8098']
-
-  - job_name: 'grafana'
-    static_configs:
-      - targets: ['grafana:3000']
