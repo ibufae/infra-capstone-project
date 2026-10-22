@@ -1,0 +1,48 @@
+groups:
+  - name: cpu
+    rules:
+      - alert: HostHighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU > 80% sur l'hôte {{ $labels.instance }}"
+          description: "Utilisation CPU à {{ $value | printf \"%.0f\" }}% depuis 10 minutes."
+
+      - alert: ContainerHighCPU
+        expr: sum by(name) (rate(container_cpu_usage_seconds_total{name!=""}[5m])) * 100 > 80
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Conteneur {{ $labels.name }} : CPU > 80%"
+          description: "Le conteneur utilise {{ $value | printf \"%.0f\" }}% d'un cœur depuis 10 minutes."
+
+  - name: services
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "{{ $labels.job }} est down ({{ $labels.instance }})"
+          description: "Prometheus ne parvient plus à scraper {{ $labels.instance }} depuis 2 minutes."
+
+      - alert: ContainerDown
+        expr: time() - container_last_seen{name!=""} > 60
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Conteneur {{ $labels.name }} arrêté"
+          description: "Le conteneur n'a plus été vu par cAdvisor depuis plus d'une minute."
+
+      - alert: SystemdServiceDown
+        expr: node_systemd_unit_state{name=~"docker.service|ssh.service", state="active"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Service {{ $labels.name }} arrêté sur {{ $labels.instance }}"

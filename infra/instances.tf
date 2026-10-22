@@ -21,7 +21,7 @@ resource "aws_instance" "instance-capstone" {
   vpc_security_group_ids      = [aws_security_group.app-sg.id]
 
   tags = {
-    Name = "instance_capstone_tf"
+    Name = "instance_capstone_${var.env}"
   }
 
   provisioner "local-exec" {

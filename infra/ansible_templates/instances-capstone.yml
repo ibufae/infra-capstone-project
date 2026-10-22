@@ -5,16 +5,19 @@
   become_user: root
 
   vars:
+    # Port local sur lequel le frontend est publié par docker compose (127.0.0.1:8080)
     backend_port: 8080
     frontend_port: 8081
     prometheus_port: 9090
     grafana_port: 3000
+    # Version du plugin Docker Compose (à épingler sur une version vérifiée)
     compose_version: "v2.29.7"
     app_user: ec2-user
     app_dir: /opt/moodboard
+    monitoring_dir: /opt/monitoring
 
   pre_tasks:
-    - name: Wait for SSH connection
+    - name: Attendre que l'instance accepte le SSH
       ansible.builtin.wait_for_connection:
         timeout: 300
 
@@ -24,7 +27,7 @@
       failed_when: false
 
   tasks:
-    - name: Install Docker and nginx
+    - name: Installer Docker et nginx
       ansible.builtin.dnf:
         name:
           - docker
@@ -37,13 +40,13 @@
         state: directory
         mode: "0755"
 
-    - name: Install Docker Compose plugin
+    - name: Installer le plugin Docker Compose
       ansible.builtin.get_url:
         url: "https://github.com/docker/compose/releases/download/{{ compose_version }}/docker-compose-linux-{{ ansible_architecture }}"
         dest: /usr/local/lib/docker/cli-plugins/docker-compose
         mode: "0755"
 
-    - name: Start docker and nginx
+    - name: Docker et nginx démarrés et activés au boot
       ansible.builtin.service:
         name: "{{ item }}"
         state: started
@@ -52,32 +55,32 @@
         - docker
         - nginx
 
-    - name: Authorize user to use Docker without sudo
+    - name: Autoriser l'utilisateur à utiliser Docker sans sudo
       ansible.builtin.user:
         name: "{{ app_user }}"
         groups: docker
         append: true
 
-    - name: Create app folder
+    - name: Dossier de l'application
       ansible.builtin.file:
         path: "{{ app_dir }}"
         state: directory
         owner: "{{ app_user }}"
         group: "{{ app_user }}"
         mode: "0755"
-    - name: Copy proxy configuration
+    - name: Déposer la conf reverse proxy
       ansible.builtin.template:
         src: moodboard.conf.j2
         dest: /etc/nginx/conf.d/moodboard.conf
         mode: "0644"
-      notify: Reload nginx
+      notify: Recharger nginx
 
     - name: Copy conf file of grafana for the proxy
       ansible.builtin.template:
         src: grafana.conf.j2
         dest: /etc/nginx/conf.d/grafana.conf
         mode: "0644"
-      notify: Reload nginx
+      notify: Recharger nginx
 
     - name: Copy env file
       ansible.builtin.template:
@@ -85,11 +88,11 @@
         dest: /opt/moodboard/.env
         mode: "0644"
 
-    - name: Validate nginx configuration
+    - name: Valider la conf nginx
       ansible.builtin.command: nginx -t
       changed_when: false
 
-    - name: Display installed versions
+    - name: Afficher les versions installées
       ansible.builtin.command: "{{ item }}"
       loop:
         - docker --version
@@ -98,13 +101,13 @@
       register: versions
       changed_when: false
 
-    - name: Summary
+    - name: Résumé
       ansible.builtin.debug:
         msg: >-
           {{ (versions.results | map(attribute='stdout') | select | list)
              + (versions.results | map(attribute='stderr') | select | list) }}
 
-    - name: Crate monitoring folder
+    - name: Créer les dossiers monitoring
       file:
         path: "{{ item }}"
         state: directory
@@ -113,27 +116,65 @@
         - /opt/monitoring
         - /opt/monitoring/config
 
-    - name: Copy monitoring compose files
-      template:
-        src: compose.monitoring.yml.j2
+    - name: Copy compose
+      ansible.builtin.copy:
+        src: monitoring/compose.monitoring.yml
         dest: /opt/monitoring/compose.yml
         mode: "0644"
 
-    - name: Copy prometheus.yml
-      template:
-        src: prometheus.yml.j2
-        dest: /opt/monitoring/config/prometheus.yml
+    - name: Déployer la config Prometheus
+      ansible.builtin.copy:
+        src: monitoring/prometheus/
+        dest: "{{ monitoring_dir }}/prometheus/"
         mode: "0644"
+        directory_mode: "0755"
+      notify: Recharger Prometheus
+
+    - name: Déployer la config Alertmanager
+      ansible.builtin.copy:
+        src: monitoring/alertmanager/
+        dest: "{{ monitoring_dir }}/alertmanager/"
+        mode: "0644"
+        directory_mode: "0755"
+      notify: Redémarrer Alertmanager
+
+    - name: Déployer le provisioning Grafana (datasource)
+      ansible.builtin.copy:
+        src: monitoring/grafana/
+        dest: "{{ monitoring_dir }}/grafana/"
+        mode: "0644"
+        directory_mode: "0755"
+      notify: Redémarrer Grafana
 
     - name: Start monitoring stack
       community.docker.docker_compose_v2:
         project_src: /opt/monitoring
-        state: present 
+        state: present
 
-    #TODO add alert
 
   handlers:
-    - name: Reload nginx
+    - name: Recharger nginx
       ansible.builtin.service:
         name: nginx
         state: reloaded
+    - name: Recharger Prometheus
+      ansible.builtin.uri:
+        url: http://127.0.0.1:9090/-/reload
+        method: POST
+        status_code: 200
+      register: prom_reload
+      until: prom_reload.status == 200
+      retries: 5
+      delay: 3
+
+    - name: Redémarrer Alertmanager
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        services: [alertmanager]
+        state: restarted
+
+    - name: Redémarrer Grafana
+      community.docker.docker_compose_v2:
+        project_src: "{{ monitoring_dir }}"
+        services: [grafana]
+        state: restarted
